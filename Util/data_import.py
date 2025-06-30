@@ -10,6 +10,6 @@ def download_data():
         return
 
     # Download latest version
-    path = kagglehub.dataset_download("janboubiabderrahim/vehicle-sounds-dataset", path="./data")
+    path = kagglehub.dataset_download("janboubiabderrahim/vehicle-sounds-dataset")
 
     print("Path to dataset files:", path)
