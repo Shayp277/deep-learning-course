@@ -6,9 +6,9 @@ from Util.data_preprocessing import *
 from torch.utils.tensorboard import SummaryWriter
 
 
-def evaluate_model_on_test(x_test_data, y_test_data, model_path, device):
+def evaluate_model_on_test(test_loader, model_path, device):
     # Create DataLoader for test data
-    test_loader = DataLoader(TensorDataset(x_test_data, y_test_data), batch_size=1, shuffle=False)
+    # test_loader = DataLoader(TensorDataset(x_test_data, y_test_data), batch_size=1, shuffle=False)
 
     # Load model
     checkpoint = torch.load(os.path.join(model_path, 'model_full.pth'), map_location=device)

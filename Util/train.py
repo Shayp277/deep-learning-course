@@ -2,11 +2,12 @@ import torch
 import os
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+from Util.AugmentedMFCCDataset import *
 from model.CNN_classifier import*
 from torch.utils.tensorboard import SummaryWriter
 
 
-def main_train_loop(x_train_data, y_train_data, x_val_data, y_val_data, num_epochs, lr, batch_size, dropout, device, best_model_dir):
+def main_train_loop(train_loader, val_loader, num_epochs, lr, batch_size, dropout, device, best_model_dir):
     writer = SummaryWriter(log_dir=f'../runs2/epochs={num_epochs}_lr={lr:1.5f}_batch_size={batch_size}_dropout={dropout:1.2f}')
 
     # Check if a model already exists. If it does, use its best validation accuracy as a benchmark to find a better model.
@@ -21,8 +22,8 @@ def main_train_loop(x_train_data, y_train_data, x_val_data, y_val_data, num_epoc
     log_interval = 10
 
     # Create data loaders
-    train_loader = DataLoader(TensorDataset(x_train_data, y_train_data), batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(TensorDataset(x_val_data, y_val_data), batch_size=batch_size, shuffle=True)
+    # train_loader = DataLoader(TensorDataset(x_train_data, y_train_data), batch_size=batch_size, shuffle=True)
+    # val_loader = DataLoader(TensorDataset(x_val_data, y_val_data), batch_size=batch_size, shuffle=True)
 
     # Build model
     model = CNN_classifier(1, 8, dropout).to(device)
@@ -37,6 +38,7 @@ def main_train_loop(x_train_data, y_train_data, x_val_data, y_val_data, num_epoc
         for inputs, labels in train_loader:
             inputs = inputs.to(device)
             labels = labels.to(device)
+            # optimizer.zero_grad()
             output = model(inputs)
             loss = criterion(output, labels)
             loss.backward()
@@ -93,4 +95,23 @@ def main_train_loop(x_train_data, y_train_data, x_val_data, y_val_data, num_epoc
         writer.add_scalar("Loss/valid", running_val_loss / len(train_loader), epoch)
         writer.add_scalar("Loss/train", running_loss / len(train_loader), epoch)
         writer.add_scalar("Accuracy/valid", val_accuracy, epoch)
-        writer.close()
+    writer.close()
+
+def load_audio_paths_and_labels(root_dir):
+    class_names = sorted(os.listdir(root_dir))  # Sorted = consistent label order
+    label_map = {class_name: i for i, class_name in enumerate(class_names)}
+
+    audio_paths = []
+    labels = []
+
+    for class_name in class_names:
+        class_dir = os.path.join(root_dir, class_name)
+        if not os.path.isdir(class_dir):
+            continue
+        for filename in os.listdir(class_dir):
+            if filename.lower().endswith(".wav"):
+                filepath = os.path.join(class_dir, filename)
+                audio_paths.append(filepath)
+                labels.append(label_map[class_name])
+
+    return audio_paths, labels, label_map
