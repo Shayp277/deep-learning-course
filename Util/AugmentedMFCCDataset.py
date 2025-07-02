@@ -3,15 +3,18 @@ import random
 
 import torch
 import torchaudio
+import hashlib
+
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch_audiomentations import Compose, Gain, Shift, PitchShift, ApplyImpulseResponse
+
 
 class AugmentedMFCCDataset(Dataset):
     def __init__(self,
                  audio_paths,
                  labels=None,
-                 label_map = None,
+                 label_map=None,
                  rir_dir=None,
                  sample_rate=16000,
                  n_mfcc=80,
@@ -19,8 +22,9 @@ class AugmentedMFCCDataset(Dataset):
                  audio_params=None,
                  mfcc_augment=False,
                  mfcc_params=None,
-                 training=True
-     ):
+                 training=True,
+                mixup = False
+                 ):
         self.audio_paths = audio_paths
         self.labels = labels
         self.label_map = label_map
@@ -33,6 +37,7 @@ class AugmentedMFCCDataset(Dataset):
         self.audio_augmentations = []
         self.augmenter = []
         self.training = training
+        self.mixup=mixup
 
         # Define waveform-level augmentations
         # Time shift
@@ -80,9 +85,54 @@ class AugmentedMFCCDataset(Dataset):
         self.augmenter = Compose(self.audio_augmentations, output_type="tensor")
 
         # Define MFCC extractor
-        self.mfcc_transform = torchaudio.transforms.MFCC(sample_rate=int(sample_rate/2), n_mfcc=80, melkwargs={'n_fft': 400, 'hop_length': 160, 'n_mels': 128, 'center': True, 'power': 2.0})
+        self.mfcc_transform = torchaudio.transforms.MFCC(n_mfcc=80,
+                                                         melkwargs={'n_fft': 400, 'hop_length': 160, 'n_mels': 128,
+                                                                    'center': True, 'power': 2.0})
 
-        # Define MFCC Augmentation
+        self.mfcc = []
+        self.clean_mfcc = []
+        cache_dir = "../audio_cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        # Extract MFCC
+        transform = torchaudio.transforms.MFCC(sample_rate=self.sample_rate, n_mfcc=80,
+                                               melkwargs={'n_fft': 400, 'hop_length': 160, 'n_mels': 128,
+                                                          'center': True, 'power': 2.0})
+        for j, path in enumerate(self.audio_paths):
+            cache_path = self.get_cache_path(path, cache_dir)
+
+            # Load or preprocess and save
+            if os.path.exists(cache_path):
+                waveform = torch.load(cache_path)
+            else:
+                waveform, sr = torchaudio.load(path)
+                waveform = torchaudio.functional.resample(waveform, sr, self.sample_rate)
+                if waveform.shape[0] > 1:
+                    waveform = torch.mean(waveform, dim=0, keepdim=True)
+                torch.save(waveform, cache_path)
+
+
+            # Batchify for augmenter: [B, C, T]
+            waveform = waveform.unsqueeze(0)  # [1, 1, T]
+
+            # Apply audio augmentations
+            if self.audio_augment and self.training:
+                self.clean_mfcc.append(torch.mean(transform(waveform.squeeze()), axis=1).unsqueeze(0))
+                waveform = self.augmenter(waveform, sample_rate=self.sample_rate)
+                if 'add_noise' in self.audio_params:
+                    min_noise_std, max_noise_std = self.audio_params['add_noise']
+                    noise_std = random.uniform(min_noise_std, max_noise_std)
+                    waveform += torch.randn_like(waveform) * noise_std
+
+
+            waveform = waveform.squeeze(0)  # [1, T]
+
+
+            mfcc = transform(waveform.squeeze())  # [n_mfcc, time]
+            mfcc = torch.mean(mfcc, axis=1).unsqueeze(0)  # [1, n_mfcc]
+            self.mfcc.append(mfcc)
+
+            if (j + 1) % 100 == 0:
+                print(f"{j + 1} audio files processed.")
 
     def _collect_rir_paths(self, rir_dir):
         rir_files = []
@@ -95,59 +145,48 @@ class AugmentedMFCCDataset(Dataset):
         return rir_files
 
     def __len__(self):
-        return len(self.audio_paths)
+        if self.mfcc_augment or self.audio_augment:
+            return len(self.audio_paths)*2
+        else:
+            return len(self.audio_paths)
 
     def __getitem__(self, idx):
         # Load audio
-        audio_path = self.audio_paths[idx]
-        waveform, sr = torchaudio.load(audio_path)
-        # print("Waveform shape when loaded:", waveform.shape)
-        if sr != self.sample_rate:
-            waveform = torchaudio.functional.resample(waveform, sr, self.sample_rate)
-        # print("Waveform shape after sr correction:", waveform.shape)
-        # waveform = waveform.unsqueeze(0)  # if waveform.dim() == 1 else waveform  # shape: [1, T] or [C, T]
-        # print("Waveform shape after unsqueeze (1,T):", waveform.shape)
-        # Convert to mono if stereo
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-        # print("Waveform shape after mono:", waveform.shape)
-        # Batchify for augmenter: [B, C, T]
-        waveform = waveform.unsqueeze(0)  # shape [1, 1, T]
-        # print("Waveform shape after unsqueeze:", waveform.shape)
-        # Apply audio augmentations
-        if self.audio_augment and self.training:
-            waveform_aug = self.augmenter(waveform, sample_rate=self.sample_rate) # shape: [1, 1, T]
-            if 'add_noise' in self.audio_params:
-                min_noise_std, max_noise_std = self.audio_params['add_noise']
-                noise_std = random.uniform(min_noise_std, max_noise_std)
-                noise = torch.randn_like(waveform_aug) * noise_std
-                waveform_aug += noise
-        waveform = waveform.squeeze(0)  # back to [1, T]
-        # print("Waveform shape after squeeze:", waveform.shape)
-        # Extract MFCC
-        mfcc = self.mfcc_transform(waveform)  # shape: [n_mfcc, time]
-        # print("mfcc shape:", mfcc.shape)
+        # if self.mfcc_augment or self.audio_augment:
+        real_idx = idx % len(self.labels)
+        if idx < len(self.labels):
+            mfcc = self.mfcc[real_idx]
+        else:
+            mfcc = self.clean_mfcc[real_idx]
+        label = self.labels[real_idx]
+
+        # mfcc = self.mfcc[idx]
+
         # Post-MFCC augmentations (only in training)
         if self.mfcc_augment and self.training:
             # Add Gaussian noise
             if 'add_noise' in self.mfcc_params:
-                noise = torch.randn_like(mfcc) * self.mfcc_params['noise_std']
+                min_noise_std, max_noise_std = self.mfcc_params['add_noise']
+                noise_std = random.uniform(min_noise_std, max_noise_std)
+                noise = torch.randn_like(mfcc) * noise_std
                 mfcc = mfcc + noise
             # Apply dropout
             if 'dropout' in self.mfcc_params:
-                mfcc = F.dropout(mfcc, p=self.mfcc_params['dropout_p'], training=True)
+                mfcc = F.dropout(mfcc, p=self.mfcc_params['dropout'], training=True)
 
-        mfcc = torch.mean(mfcc, axis=1)
-        T = mfcc.shape[1]
-        max_frames = 5*self.sample_rate
-        if T > max_frames:
-            return mfcc[:, :max_frames]
+        if self.mixup:
+            label_tensor = torch.tensor(label)
         else:
-            mfcc =  torch.nn.functional.pad(mfcc, (0, max_frames - T))
-        # print("final mfcc shape:", mfcc.shape)
-        if self.labels:
-            label = self.labels[idx]  # e.g., "Cars"
             label_tensor = F.one_hot(torch.tensor(label).long(), num_classes=8).float()  # [num_classes]
-            return mfcc, label_tensor
-        else:
-            return mfcc
+        return mfcc, label_tensor
+
+        # mfcc = torch.mean(mfcc, axis=2)
+
+        # label = self.labels[idx]
+
+
+    @staticmethod
+    def get_cache_path(path, cache_dir):
+        """Generate a unique file name using hash (to handle files with same name)."""
+        name_hash = hashlib.md5(path.encode()).hexdigest()
+        return os.path.join(cache_dir, f"{name_hash}.pt")
