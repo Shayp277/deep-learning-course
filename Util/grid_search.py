@@ -8,7 +8,7 @@ import numpy as np
 def grid_search():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     best_model_dir = 'shay_best_model'  # choose dir to save the current best model
-    mixup = False
+    mixup = True
     # download_data()                                                                 # if you need to create new dataset you need to download wav file
     # data = DATA('../data', wav_to_pkl=False, with_mixup=mixup)        # to create new pkl files choose wav_to_pkl=True, for loading data with mixup choose with_mixup=True
     root = "../data"
@@ -31,14 +31,14 @@ def grid_search():
             'dropout': 0.3
 
         }
-    train_dataset = AugmentedMFCCDataset(training_paths, train_labels, label_map,mixup=mixup,audio_augment=True,audio_params=audio_augmentation_params,mfcc_augment=False,mfcc_params=mfcc_augmentation_params, training=True)
+    train_dataset = AugmentedMFCCDataset(training_paths, train_labels, label_map,mixup=mixup,audio_augment=False,audio_params=audio_augmentation_params,mfcc_augment=False,mfcc_params=mfcc_augmentation_params, training=True)
     # train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=4)
 
     # Evaluation dataset
     validating_paths = [audio_paths[i] for i in val_idx]
     val_labels = [labels[i] for i in val_idx]
 
-    val_dataset = AugmentedMFCCDataset(validating_paths, val_labels, label_map, training=False)
+    val_dataset = AugmentedMFCCDataset(validating_paths, val_labels, label_map, training=False,mixup=mixup)
     # val_loader = DataLoader(val_dataset, batch_size=16, shuffle=True, num_workers=4)
 
     for trial in range(20):

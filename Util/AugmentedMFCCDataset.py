@@ -6,6 +6,7 @@ import torchaudio
 import hashlib
 
 import torch.nn.functional as F
+from scipy.signal import waveforms
 from torch.utils.data import Dataset
 from torch_audiomentations import Compose, Gain, Shift, PitchShift, ApplyImpulseResponse
 
@@ -23,7 +24,7 @@ class AugmentedMFCCDataset(Dataset):
                  mfcc_augment=False,
                  mfcc_params=None,
                  training=True,
-                mixup = False
+                 mixup=False
                  ):
         self.audio_paths = audio_paths
         self.labels = labels
@@ -37,7 +38,7 @@ class AugmentedMFCCDataset(Dataset):
         self.audio_augmentations = []
         self.augmenter = []
         self.training = training
-        self.mixup=mixup
+        self.mixup = mixup
 
         # Define waveform-level augmentations
         # Time shift
@@ -97,6 +98,7 @@ class AugmentedMFCCDataset(Dataset):
         transform = torchaudio.transforms.MFCC(sample_rate=self.sample_rate, n_mfcc=80,
                                                melkwargs={'n_fft': 400, 'hop_length': 160, 'n_mels': 128,
                                                           'center': True, 'power': 2.0})
+        waveforms = []
         for j, path in enumerate(self.audio_paths):
             cache_path = self.get_cache_path(path, cache_dir)
 
@@ -109,10 +111,24 @@ class AugmentedMFCCDataset(Dataset):
                 if waveform.shape[0] > 1:
                     waveform = torch.mean(waveform, dim=0, keepdim=True)
                 torch.save(waveform, cache_path)
+            waveforms.append(waveform)
+        mixup_waveforms = []
+        mixup_labels = []
+        if mixup:
+            for j in range(len(waveforms)):
+                i = random.randint(0, len(waveforms) - 1)
+                m = random.uniform(0, 1)
+                min_audio_size = min(waveforms[j].shape[1], waveforms[i].shape[1])  # crop audio
+                mixup_waveforms.append(m * waveforms[j][:, :min_audio_size] + (1 - m) * waveforms[i][:, :min_audio_size])
+                mixup_labels.append(m * F.one_hot(torch.tensor(labels[j] ).long(), num_classes=8).float() + (1 - m) * F.one_hot(torch.tensor(labels[i]).long(), num_classes=8).float())
 
 
+            waveforms = mixup_waveforms
+            self.labels = mixup_labels
+
+        for j in range(len(waveforms)):
             # Batchify for augmenter: [B, C, T]
-            waveform = waveform.unsqueeze(0)  # [1, 1, T]
+            waveform = waveforms[j].unsqueeze(0)  # [1, 1, T]
 
             # Apply audio augmentations
             if self.audio_augment and self.training:
@@ -123,9 +139,7 @@ class AugmentedMFCCDataset(Dataset):
                     noise_std = random.uniform(min_noise_std, max_noise_std)
                     waveform += torch.randn_like(waveform) * noise_std
 
-
             waveform = waveform.squeeze(0)  # [1, T]
-
 
             mfcc = transform(waveform.squeeze())  # [n_mfcc, time]
             mfcc = torch.mean(mfcc, axis=1).unsqueeze(0)  # [1, n_mfcc]
@@ -133,6 +147,7 @@ class AugmentedMFCCDataset(Dataset):
 
             if (j + 1) % 100 == 0:
                 print(f"{j + 1} audio files processed.")
+
 
     def _collect_rir_paths(self, rir_dir):
         rir_files = []
@@ -144,11 +159,16 @@ class AugmentedMFCCDataset(Dataset):
             raise ValueError(f"No .wav RIR files found in {rir_dir}")
         return rir_files
 
+
     def __len__(self):
+        factor = 1
         if self.mfcc_augment or self.audio_augment:
-            return len(self.audio_paths)*2
-        else:
-            return len(self.audio_paths)
+            factor +=1
+        if self.mixup:
+            factor +=1
+        return len(self.audio_paths) * factor
+
+
 
     def __getitem__(self, idx):
         # Load audio
@@ -177,7 +197,8 @@ class AugmentedMFCCDataset(Dataset):
         if self.mixup:
             label_tensor = torch.tensor(label)
         else:
-            label_tensor = F.one_hot(torch.tensor(label).long(), num_classes=8).float()  # [num_classes]
+            # label_tensor = F.one_hot(torch.tensor(label).long(), num_classes=8).float()  # [num_classes]
+            label_tensor = torch.tensor(label)
         return mfcc, label_tensor
 
         # mfcc = torch.mean(mfcc, axis=2)

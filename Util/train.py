@@ -25,9 +25,10 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
     model = CNN_classifier(1, 8, dropout).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     if mixup:
-        criterion = nn.CrossEntropyLoss()
-    else:
         criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
+
 
     # train loop
     for epoch in range(num_epochs):
@@ -62,8 +63,11 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
                 labels = labels.to(device)
                 output = model(inputs)
                 _, predicted = torch.max(output.data, 1)
-                _, target = torch.max(labels, 1)
-                loss = criterion(output, labels)
+                if mixup:
+                    _, target = torch.max(labels.data, 1)
+                else:
+                    target = labels.data
+                    loss = criterion(output, labels)
                 running_val_loss += loss.item()
                 total += labels.size(0)
                 correct += torch.sum(predicted == target).item()

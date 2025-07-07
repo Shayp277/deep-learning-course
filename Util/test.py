@@ -16,8 +16,10 @@ def evaluate_model_on_test(test_loader, model_path, device):
     checkpoint = torch.load(os.path.join(model_path, 'model_full.pth'), map_location=device)
     model = checkpoint['model']
     model.eval()
-
-    criterion = nn.BCEWithLogitsLoss()
+    if test_loader.dataset.mixup:
+        criterion = nn.BCEWithLogitsLoss()
+    else:
+        criterion = nn.CrossEntropyLoss()
     correct = 0
     total = 0
     test_loss = 0.0
@@ -32,7 +34,10 @@ def evaluate_model_on_test(test_loader, model_path, device):
             test_loss += loss.item()
 
             _, predicted = torch.max(outputs.data, 1)
-            _, target = torch.max(labels.data, 1)
+            if test_loader.dataset.mixup:
+                _, target = torch.max(labels.data, 1)
+            else:
+                target = labels.data
 
             correct += torch.sum(predicted == target).item()
             total += labels.size(0)
@@ -52,15 +57,15 @@ if __name__ == '__main__':
                                                          test_ratio=0.1, seed=0)
     testing_paths = [audio_paths[i] for i in test_idx]
     test_labels = [labels[i] for i in test_idx]
-    test_loader = DataLoader(AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False), batch_size=1, shuffle=False)
+    test_loader = DataLoader(AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False,mixup=True), batch_size=1, shuffle=False)
 
 
     # test model without mixup
     print('Model score without mix up')
     best_model_dir = 'shay_best_model'
-    data = DATA('../data', wav_to_pkl=False, with_mixup=False)
+    # data = DATA('../data', wav_to_pkl=False, with_mixup=False)
     evaluate_model_on_test(test_loader, '../' + best_model_dir, device)
-    evaluate_model_on_test(test_loader, '../' + best_model_dir, device)
+    # evaluate_model_on_test(test_loader, '../' + best_model_dir, device)
 
     # test model with mixup
     # print('\nModel score with mix up')
