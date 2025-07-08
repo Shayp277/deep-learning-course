@@ -1,14 +1,11 @@
-import torch
 import os
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from Util.AugmentedMFCCDataset import *
-from model.CNN_classifier import*
 from torch.utils.tensorboard import SummaryWriter
+from model.CNN_classifier import *
 
 
 def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, dropout, device, best_model_dir):
-    writer = SummaryWriter(log_dir=f'../aug_run/epochs={num_epochs}_lr={lr:1.5f}_batch_size={batch_size}_dropout={dropout:1.2f}')
+    writer = SummaryWriter(log_dir=f'../run_log/epochs={num_epochs}_lr={lr:1.5f}_batch_size={batch_size}_dropout={dropout:1.2f}')
 
     # Check if a model already exists. If it does, use its best validation accuracy as a benchmark to find a better model.
     if os.path.exists(f'../' + best_model_dir + '/model_full.pth'):
@@ -16,13 +13,12 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
         best_val_acc = checkpoint['best_val_acc']
     else:
         best_val_acc = 0
-    best_model = None
     train_losses = []
     val_accuracies = []
     log_interval = 16
 
     # Build model
-    model = CNN_classifier(1, 8, dropout).to(device)
+    model = CNN_classifier(1, 9, dropout).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     if mixup:
         criterion = nn.BCEWithLogitsLoss()
@@ -67,7 +63,7 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
                     _, target = torch.max(labels.data, 1)
                 else:
                     target = labels.data
-                    loss = criterion(output, labels)
+                loss = criterion(output, labels)
                 running_val_loss += loss.item()
                 total += labels.size(0)
                 correct += torch.sum(predicted == target).item()
@@ -78,7 +74,7 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
 
         if val_accuracy > best_val_acc:
             best_val_acc = val_accuracy
-            best_model = model
+            # best_model = model
             torch.save(
                 {'model': model,
                 'best_val_acc': best_val_acc,
@@ -100,21 +96,3 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
         writer.add_scalar("Accuracy/valid", val_accuracy, epoch)
         writer.close()
 
-def load_audio_paths_and_labels(root_dir):
-    class_names = (os.listdir(root_dir))  # Sorted = consistent label order
-    label_map = {class_name: i for i, class_name in enumerate(class_names)}
-
-    audio_paths = []
-    labels = []
-
-    for class_name in class_names:
-        class_dir = os.path.join(root_dir, class_name)
-        if not os.path.isdir(class_dir):
-            continue
-        for filename in os.listdir(class_dir):
-            if filename.lower().endswith(".wav"):
-                filepath = os.path.join(class_dir, filename)
-                audio_paths.append(filepath)
-                labels.append(label_map[class_name])
-
-    return audio_paths, labels, label_map
