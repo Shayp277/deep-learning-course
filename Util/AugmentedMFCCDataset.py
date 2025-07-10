@@ -22,7 +22,7 @@ class AugmentedMFCCDataset(Dataset):
                  audio_params=None,
                  mfcc_augment=False,
                  mfcc_params=None,
-                 training=True,
+                 training=False,
                  mixup=False
                  ):
         self.audio_paths = audio_paths
@@ -77,7 +77,7 @@ class AugmentedMFCCDataset(Dataset):
             )
 
         # ===Reverb / impulse response===
-        if self.audio_params.get('reverb') and self.rir_dir:
+        if 'reverb' in self.audio_params and self.rir_dir:
             self.audio_augmentations.append(
                 ApplyImpulseResponse(ir_paths=self._collect_rir_paths(self.rir_dir), p=1.0, output_type="tensor")
             )
@@ -152,7 +152,7 @@ class AugmentedMFCCDataset(Dataset):
                 mix_waveforms = self.aug_waveoforms
             else:
                 mix_waveforms = waveforms
-            self.labels = torch.stack([F.one_hot(torch.tensor(k).long(), num_classes=9).float() for k in self.labels]) #while doing multi- labeling, labels should be in a vector form and not an index, e.g [0,0.2,0,0.8.0]
+            self.labels = torch.stack([F.one_hot(torch.tensor(k).long(), num_classes=8).float() for k in self.labels]) #while doing multi- labeling, labels should be in a vector form and not an index, e.g [0,0.2,0,0.8.0]
             for j in range(len(mix_waveforms)):
                 i = random.randint(0, len(mix_waveforms) - 1)
                 m = random.uniform(0, 1)
@@ -164,6 +164,16 @@ class AugmentedMFCCDataset(Dataset):
 
                 if (j + 1) % 100 == 0:
                     print(f"{j + 1} audio files processed.")
+
+        self.Final_input = self.clean_mfcc.copy()
+        self.Final_labels = self.labels.copy()
+        if self.augwav_mfcc:
+            self.Final_input.extend(self.augwav_mfcc)
+            self.Final_labels.extend(self.labels)
+        if self.mixup_mfcc:
+            self.Final_input.extend(self.mixup_mfcc)
+            self.Final_labels.extend(self.mixup_labels)
+
 
 
     @staticmethod
@@ -187,12 +197,12 @@ class AugmentedMFCCDataset(Dataset):
         """
         Return the number of audio files in the dataset. Depends on whether using mixup or augmentation.
         """
-        factor = 1
-        if self.mfcc_augment or self.audio_augment:
-            factor +=1
-        if self.mixup:
-            factor +=1
-        return len(self.audio_paths) * factor
+        # factor = 1
+        # if self.mfcc_augment or self.audio_augment:
+        #     factor +=1
+        # if self.mixup:
+        #     factor +=1
+        return len(self.Final_labels) #* factor
 
 
 
@@ -203,17 +213,19 @@ class AugmentedMFCCDataset(Dataset):
         :return: mfcc (input to nn) and label
         """
         # Load (input, target output) tuple randomly.
-        choice = random.choice(self.options)
-        real_idx = idx % len(self.audio_paths)
-        if choice == 'clean':
-            mfcc = self.clean_mfcc[real_idx]
-            label = self.labels[real_idx]
-        if choice == 'mixup':
-            mfcc = self.mixup_mfcc[real_idx]
-            label = self.mixup_labels[real_idx]
-        if choice == 'augment':
-            mfcc = self.augwav_mfcc[real_idx]
-            label = self.labels[real_idx]
+        # choice = random.choice(self.options)
+        # real_idx = idx % len(self.audio_paths)
+        # if choice == 'clean':
+        #     mfcc = self.clean_mfcc[real_idx]
+        #     label = self.labels[real_idx]
+        # if choice == 'mixup':
+        #     mfcc = self.mixup_mfcc[real_idx]
+        #     label = self.mixup_labels[real_idx]
+        # if choice == 'augment':
+        #     mfcc = self.augwav_mfcc[real_idx]
+        #     label = self.labels[real_idx]
+        mfcc = self.Final_input[idx]
+        label = self.Final_labels[idx]
 
 
         # Post-MFCC augmentations (only in training)

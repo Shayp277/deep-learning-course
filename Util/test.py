@@ -52,7 +52,7 @@ def main():
                                                          test_ratio=0.1, seed=0)
     testing_paths = [audio_paths[i] for i in test_idx]
     test_labels = [labels[i] for i in test_idx]
-    test_loader = DataLoader(AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False,mixup=True), batch_size=1, shuffle=False)
+    test_loader = DataLoader(AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False,mixup=False), batch_size=1, shuffle=False)
 
 
     # test model

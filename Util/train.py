@@ -18,7 +18,7 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
     log_interval = 16
 
     # Build model
-    model = CNN_classifier(1, 9, dropout).to(device)
+    model = CNN_classifier(1, 8, dropout).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     if mixup:
         criterion = nn.BCEWithLogitsLoss()
@@ -42,9 +42,9 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
             running_loss += loss.item()
             batch += 1
 
-            if (batch % log_interval == 0) & (batch > 0):
-                print(f'| epoch {epoch:3d} | {batch:5d}/{len(train_loader):5d} batches | '
-                      f'lr: {lr:02.6f} | loss: {running_loss/log_interval:5.3f}')
+            # if (batch % log_interval == 0) & (batch > 0):
+            #     print(f'| epoch {epoch:3d} | {batch:5d}/{len(train_loader):5d} batches | '
+            #           f'lr: {lr:02.6f} | loss: {running_loss/log_interval:5.3f}')
 
         train_losses.append(running_loss / len(train_loader))
 
