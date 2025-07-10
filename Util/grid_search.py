@@ -47,12 +47,6 @@ def grid_search():
         lr = 10 ** random.uniform(-6, -4)
         batch_size = 2 ** random.randint(4, 7)
         dropout = random.uniform(0, 0.2)
-        # print('lr:', lr)
-        # print('batch_size:', batch_size)
-        # print('dropout:', dropout)
-        lr=5.6325411498664184e-05
-        batch_size = 32
-        dropout = 0.17643
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, persistent_workers=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, persistent_workers=True)
         main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, dropout, device,
