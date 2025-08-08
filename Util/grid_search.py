@@ -11,8 +11,8 @@ torch.cuda.manual_seed_all(0)
 def grid_search():
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     best_model_dir = 'shay_best_model'  # choose dir to save the current best model
-    mixup = False
-    augment = True
+    mixup = True
+    augment = False
     # download_data()  # if you need to create new dataset you need to download wav file
     root = "../data"
     audio_paths, labels, label_map = load_audio_paths_and_labels(root)
@@ -43,7 +43,7 @@ def grid_search():
     # =====grid search loop=====
     for trial in range(20):
         # random model params
-        num_epochs = 200#random.randint(150, 150)
+        num_epochs = 180#random.randint(150, 150)
         lr = 10 ** random.uniform(-6, -4)
         batch_size = 2 ** random.randint(4, 7)
         dropout = random.uniform(0, 0.2)

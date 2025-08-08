@@ -152,7 +152,7 @@ class AugmentedMFCCDataset(Dataset):
                 mix_waveforms = self.aug_waveoforms
             else:
                 mix_waveforms = waveforms
-            self.labels = torch.stack([F.one_hot(torch.tensor(k).long(), num_classes=8).float() for k in self.labels]) #while doing multi- labeling, labels should be in a vector form and not an index, e.g [0,0.2,0,0.8.0]
+            self.labels = ([F.one_hot(torch.tensor(k).long(), num_classes=8).float() for k in self.labels]) #while doing multi- labeling, labels should be in a vector form and not an index, e.g [0,0.2,0,0.8.0]
             for j in range(len(mix_waveforms)):
                 i = random.randint(0, len(mix_waveforms) - 1)
                 m = random.uniform(0, 1)
