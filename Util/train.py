@@ -1,10 +1,12 @@
 import os
 import torch.optim as optim
+from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
+from torcheval.metrics import TopKMultilabelAccuracy
 from model.CNN_classifier import *
 
 
-def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, dropout, device, best_model_dir):
+def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, dropout, device, best_model_dir,classes_num):
     writer = SummaryWriter(log_dir=f'../run_log/epochs={num_epochs}_lr={lr:1.5f}_batch_size={batch_size}_dropout={dropout:1.2f}')
 
     # Check if a model already exists. If it does, use its best validation accuracy as a benchmark to find a better model.
@@ -18,8 +20,9 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
     log_interval = 16
 
     # Build model
-    model = CNN_classifier(1, 8, dropout).to(device)
+    model = CNN_classifier(1, classes_num, dropout).to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
     if mixup:
         criterion = nn.BCEWithLogitsLoss()
     else:
@@ -47,6 +50,7 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
             #           f'lr: {lr:02.6f} | loss: {running_loss/log_interval:5.3f}')
 
         train_losses.append(running_loss / len(train_loader))
+        metric = TopKMultilabelAccuracy(k=2, criteria="exact_match").to(device) if mixup else None
 
         # Validation accuracy
         running_val_loss = 0.0
@@ -58,18 +62,31 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
                 inputs = inputs.to(device)
                 labels = labels.to(device)
                 output = model(inputs)
-                _, predicted = torch.max(output.data, 1)
-                if mixup:
-                    _, target = torch.max(labels.data, 1)
-                else:
-                    target = labels.data
+
+                # _, predicted = torch.max(output.data, 1)
+                # if mixup:
+                #     _, target = torch.max(labels.data, 1)
+                # else:
+                #     target = labels.data
                 loss = criterion(output, labels)
                 running_val_loss += loss.item()
-                total += labels.size(0)
-                correct += torch.sum(predicted == target).item()
+                # total += labels.size(0)
+                # correct += torch.sum(predicted == target).item()
+
+                if mixup:
+                    # For multi-label classification, use BCEWithLogitsLoss
+                    metric.update(output, labels)
+                    total += labels.size(0)
+
+                else:
+                    # For multi-class classification, use CrossEntropyLoss
+                    _, predicted = torch.topk(output, 1, dim=1, largest=True)
+                    # labels = torch.argmax(labels, dim=1)
+                    correct += (predicted == torch.argmax(labels.unsqueeze(1), dim=1)).sum().item()
+                    total += labels.size(0)
 
         val_loss = running_val_loss / len(val_loader)
-        val_accuracy = 100 * correct / total
+        val_accuracy = metric.compute().item() if mixup else 100 * correct / total
         val_accuracies.append(val_accuracy)
 
         if val_accuracy > best_val_acc:
@@ -85,6 +102,8 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
                      'num_epochs': num_epochs
                  }
             },'../' + best_model_dir + '/model_full.pth')
+
+        scheduler.step()
 
         print('-' * 89)
         print(f'| end of epoch {epoch:3d} | valid loss {val_loss:.3f} | valid accuracy {val_accuracy:.3f}')
