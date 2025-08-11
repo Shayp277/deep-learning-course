@@ -9,7 +9,8 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch_audiomentations import Compose, Gain, Shift, PitchShift, ApplyImpulseResponse
 
-
+seed =0
+random.seed(seed)
 class AugmentedMFCCDataset(Dataset):
     def __init__(self,
                  audio_paths,
@@ -40,11 +41,14 @@ class AugmentedMFCCDataset(Dataset):
         self.augmenter = []
         self.training = training
         self.mixup = mixup
+        self.mixup_labels_soft=[]
+        self.mixup_labels_hard=[]
         self.classes_num = classes_num
         self.is_multilabel = is_multilabel
         self.labels_hot_one = ([F.one_hot(torch.tensor(k).long(), num_classes=self.classes_num).float() for k in
-                                self.labels])  # while doing multi- labeling, labels should be in a vector form and not an index, e.g [0,0.2,0,0.8.0]
-
+                                self.labels])
+        seed = 0
+        random.seed(seed)
         # =====Define waveform-level augmentations=====
         # ===Time shift===
         if 'shift_max' in self.audio_params:
@@ -148,7 +152,7 @@ class AugmentedMFCCDataset(Dataset):
                     print(f"{j + 1} audio files processed.")
 
         # =====Create Mixup data (multi-labeled)=====
-        self.mixup_labels = []
+        # self.mixup_labels = []
         if self.mixup or self.is_multilabel:
             if self.audio_augment:
                 mix_waveforms = self.aug_waveoforms
@@ -165,26 +169,60 @@ class AugmentedMFCCDataset(Dataset):
                 mixup_waveforms = (m * mix_waveforms[j][:, :min_audio_size] + (1 - m) * mix_waveforms[i][:, :min_audio_size]) #mix two audio files at random magnitude (sum of 1)
                 # Keep mixup data (could be clean or augmented)
                 self.mixup_mfcc.append(torch.mean(transform(mixup_waveforms.squeeze()), axis=1).unsqueeze(0))
-                # self.mixup_labels.append(m * self.labels[j] + (1 - m) * self.labels[i])
-                self.mixup_labels.append( self.labels_hot_one[j] + self.labels_hot_one[i])
+                self.mixup_labels_soft.append(m * self.labels_hot_one[j] + (1 - m) * self.labels_hot_one[i])
+                self.mixup_labels_hard.append( self.labels_hot_one[j] + self.labels_hot_one[i])
 
                 if (j + 1) % 100 == 0:
                     print(f"{j + 1} audio files processed.")
 
         self.Final_input =[]
         self.Final_labels = []
-        if self.is_multilabel:
-            self.Final_input.extend(self.mixup_mfcc)
-            self.Final_labels.extend(self.mixup_labels)
-        else:
-            self.Final_input = self.clean_mfcc.copy()
-            self.Final_labels = self.labels_hot_one.copy()
-            if self.augwav_mfcc:
-                self.Final_input.extend(self.augwav_mfcc)
-                self.Final_labels.extend(self.labels_hot_one)
-            if self.mixup_mfcc:
+        # if self.is_multilabel:
+        #     if self.mixup:
+        #         if training:
+        #             self.Final_input.extend(self.mixup_mfcc)
+        #             self.Final_labels.extend(self.mixup_labels_soft)
+        #         # else:
+        #         #     self.Final_input.extend(self.mixup_mfcc)
+        #         #     self.Final_labels.extend(self.mixup_labels_hard)
+        # else:
+        #     self.Final_input = self.clean_mfcc.copy()
+        #     self.Final_labels = self.labels_hot_one.copy()
+        #     if self.augwav_mfcc:
+        #         self.Final_input.extend(self.augwav_mfcc)
+        #         self.Final_labels.extend(self.labels_hot_one)
+        #     if self.mixup:
+        #         self.Final_input.extend(self.mixup_mfcc)
+        #         self.Final_labels.extend(self.mixup_labels_soft)
+
+
+        if training:
+            if self.is_multilabel:
                 self.Final_input.extend(self.mixup_mfcc)
-                self.Final_labels.extend(self.mixup_labels)
+                self.Final_labels.extend(self.mixup_labels_soft)
+            else:
+                self.Final_input = self.clean_mfcc.copy()
+                self.Final_labels = self.labels_hot_one.copy()
+                if self.augwav_mfcc:
+                    self.Final_input.extend(self.augwav_mfcc)
+                    self.Final_labels.extend(self.labels_hot_one)
+                if self.mixup:
+                    self.Final_input.extend(self.mixup_mfcc)
+                    self.Final_labels.extend(self.mixup_labels_soft)
+        else:
+            if self.is_multilabel:
+                self.Final_input.extend(self.mixup_mfcc)
+                self.Final_labels.extend(self.mixup_labels_hard)
+            else:
+                if not self.audio_augment:
+                    self.Final_input = self.clean_mfcc.copy()
+                    self.Final_labels = self.labels_hot_one.copy()
+                else:
+                    self.Final_input.extend(self.augwav_mfcc)
+                    self.Final_labels.extend(self.labels_hot_one)
+
+
+
 
 
 
@@ -224,6 +262,8 @@ class AugmentedMFCCDataset(Dataset):
         :param idx:
         :return: mfcc (input to nn) and label
         """
+        if len(self.Final_labels[idx]) == 0:
+            raise ValueError(f"Empty label for index {idx}")
         mfcc = self.Final_input[idx]
         label = self.Final_labels[idx]
 

@@ -2,10 +2,11 @@ import os.path
 from torch.utils.data import DataLoader
 from model.CNN_classifier import nn
 from Util.AugmentedMFCCDataset import *
+from train import *
 from torcheval.metrics import TopKMultilabelAccuracy
 
 
-def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact_match", is_multilabel=False):
+def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact_match", is_multilabel=False, mixup=None):
     """
     Evaluate the model on the given data loader.
 
@@ -16,7 +17,8 @@ def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact
         k: Number of top predictions to consider.
         criteria: Criteria for matching top-k predictions ("exact_match", "hamming", etc.).
         is_multilabel: Flag indicating if the task is multi-class (False) or multi-label (True).
-
+        Mixup: Flag indicating if the test data was mixed.
+        Mixup: Flag indicating if the test data was mixed.
     Returns:
         accuracy: The computed accuracy.
     """
@@ -25,7 +27,7 @@ def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact
     model = checkpoint['model']
     metric = TopKMultilabelAccuracy(k=k, criteria=criteria).to(device) if is_multilabel else None
     model.eval()
-    criterion = nn.BCEWithLogitsLoss() if is_multilabel else nn.CrossEntropyLoss() #criterion: Loss function used during training.
+    # criterion = nn.BCEWithLogitsLoss() if is_multilabel else nn.CrossEntropyLoss() #criterion: Loss function used during training.
     correct = 0
     total = 0
     test_loss = 0.0
@@ -36,8 +38,10 @@ def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact
             labels = labels.to(device)
             outputs = model(inputs)
 
+
+
             #calculate loss
-            loss = criterion(outputs, labels)
+            loss = compute_loss(outputs, labels,mixup,is_multilabel)
             test_loss += loss.item()
 
             if is_multilabel:
@@ -46,10 +50,13 @@ def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact
                 total += labels.size(0)
 
             else:
+                if labels.ndim == 2 and labels.size(1) == outputs.size(1):
+                    targets = labels.argmax(dim=1)  # (N,)
+                else:  # already indices
+                    targets = labels.long().view(-1)
                 # For multi-class classification, use CrossEntropyLoss
-                _, predicted = torch.topk(outputs, 1, dim=1, largest=True, sorted=True)
-                labels = torch.argmax(labels, dim=1)
-                correct += (predicted == labels.unsqueeze(1)).sum().item()
+                prediction = outputs.argmax(dim=1)
+                correct += (prediction == targets).sum().item()
                 total += labels.size(0)
 
             # _, predicted = torch.max(outputs.data, 1)
@@ -65,27 +72,27 @@ def evaluate_model_on_test(test_loader, model_path, device, k=2, criteria="exact
     # avg_loss = test_loss / total
 
     avg_loss = test_loss / len(test_loader)
-    accuracy = metric.compute().item() if is_multilabel else 100 * correct / total
+    accuracy = 100*metric.compute().item() if is_multilabel else 100 * correct / total
     title0 = "multilabel" if is_multilabel else "singlelabel"
     print(title0 + f"Test Loss: {avg_loss:.4f}, Test Accuracy: {accuracy:.2f}%")
     return accuracy, avg_loss
 
-def main():
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    random.seed(0)
-    torch.cuda.manual_seed_all(0)
-    root = "../data"
-    audio_paths, labels, label_map = load_audio_paths_and_labels(root)
-    train_idx, val_idx, test_idx = create_split_masks(root, train_ratio=0.7, val_ratio=0.2,
-                                                         test_ratio=0.1, seed=0)
-    testing_paths = [audio_paths[i] for i in test_idx]
-    test_labels = [labels[i] for i in test_idx]
-    test_loader = DataLoader(AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False,mixup=False), batch_size=1, shuffle=False)
-
-
-    # test model
-    best_model_dir = 'shay_best_model'
-    evaluate_model_on_test(test_loader, '../' + best_model_dir, device)
-
-if __name__ == '__main__':
-    main()
+# def main():
+#     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#     random.seed(0)
+#     torch.cuda.manual_seed_all(0)
+#     root = "../data"
+#     audio_paths, labels, label_map = load_audio_paths_and_labels(root)
+#     train_idx, val_idx, test_idx = create_split_masks(root, train_ratio=0.7, val_ratio=0.2,
+#                                                          test_ratio=0.1, seed=0)
+#     testing_paths = [audio_paths[i] for i in test_idx]
+#     test_labels = [labels[i] for i in test_idx]
+#     test_loader = DataLoader(AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False,mixup=False), batch_size=1, shuffle=False)
+#
+#
+#     # test model
+#     best_model_dir = 'shay_best_model'
+#     evaluate_model_on_test(test_loader, '../' + best_model_dir, device)
+#
+# if __name__ == '__main__':
+#     main()
