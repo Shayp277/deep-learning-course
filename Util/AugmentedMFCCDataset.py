@@ -129,7 +129,7 @@ class AugmentedMFCCDataset(Dataset):
             self.clean_mfcc.append(torch.mean(self.transform(waveform.squeeze()), axis=1).unsqueeze(0)) # ===Create clean (unaugmented) MFCC data===
 
         # =====Create augmented data=====
-        if self.audio_augment and self.training:
+        if self.audio_augment:
             for j in range(len(waveforms)):
 
                 aug_waveform = waveforms[j].unsqueeze(0)  # Batchify for augmenter: [B, C, T]
@@ -146,18 +146,15 @@ class AugmentedMFCCDataset(Dataset):
                 self.aug_waveoforms.append(aug_waveform)
                 self.augwav_mfcc.append(torch.mean(self.transform(aug_waveform.squeeze()), axis=1).unsqueeze(0))
 
-                if (j + 1) % 100 == 0:
-                    print(f"{j + 1} audio files processed.")
-
         # =====Create Mixup data (multi-labeled)=====
         # self.mixup_labels = []
         if self.audio_augment:
-            mix_waveforms = self.aug_waveoforms
+            mix_waveforms = waveforms#self.aug_waveoforms
         else:
             mix_waveforms = waveforms
         if mixup and training:
 
-            p = 2 if training else 1
+            p = 5 if training else 1
             while p > 0:
                 mfcc_mix,softlabel,hardlabel = self.create_mix(self,mix_waveforms)
                 self.mixup_mfcc = mfcc_mix
@@ -239,9 +236,6 @@ class AugmentedMFCCDataset(Dataset):
             mfcc_mix.append((torch.mean(self.transform(mixup_waveforms.squeeze()), axis=1).unsqueeze(0)))
             softlabel.append((m * self.labels_hot_one[j] + (1 - m) * self.labels_hot_one[i]))
             hardlabel.append((self.labels_hot_one[j] + self.labels_hot_one[i]))
-
-            if (j + 1) % 100 == 0:
-                print(f"{j + 1} audio files processed.")
         return mfcc_mix,softlabel,hardlabel
 
     @staticmethod

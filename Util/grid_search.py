@@ -16,9 +16,9 @@ def grid_search():
     torch.manual_seed(seed)  # For CPU ops
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     best_model_dir = 'shay_best_model'  # choose dir to save the current best model
-    mixup = False
-    augment = False
-    is_multilabel = False
+    mixup = True
+    augment = True
+    is_multilabel = True
     test_augment = False
     classes_num = 8
     # download_data()  # if you need to create new dataset you need to download wav file
