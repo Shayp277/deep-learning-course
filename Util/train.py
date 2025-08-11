@@ -30,10 +30,9 @@ def compute_loss(output,labels,mixup,is_multilabel):
             loss = -(labels * log_probs).sum(dim=1).mean()  # soft cross-entropy
             # loss = soft_cross_entropy()
         else:
-            # if labels.ndim == 2:
-            #     labels = labels.argmax(dim=1)
-            # criterion = nn.CrossEntropyLoss()
-            criterion = nn.BCEWithLogitsLoss()
+            if labels.ndim == 2:
+                labels = labels.argmax(dim=1)
+            criterion = nn.CrossEntropyLoss()
             loss = criterion(output, labels)
     return loss
 
@@ -68,10 +67,7 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
             optimizer.zero_grad()
             output = model(inputs)
             # labels = labels.to(output.dtype)
-
             loss = compute_loss(output, labels, mixup, is_multilabel)
-
-
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
@@ -100,6 +96,10 @@ def main_train_loop(train_loader, val_loader,mixup, num_epochs, lr, batch_size, 
                 # To Compute the accuracy
                 if is_multilabel:
                     # For multi-label classification, use BCEWithLogitsLoss
+                    # probs = torch.sigmoid(output)
+                    # topk_preds = torch.zeros_like(probs, dtype=torch.int)
+                    # topk_indices = torch.topk(probs, k=2, dim=1).indices
+                    # topk_preds.scatter_(1, topk_indices, 1)  # mark top-k positions as 1
                     metric.update(output, labels)
                     total += labels.size(0)
                 else:
