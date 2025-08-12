@@ -1,11 +1,11 @@
 import kagglehub
 import os
 
-def download_data():
-    if not os.path.exists('../data'):
-        os.makedirs('../data')
+def download_data(data_dir):
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
 
-    if len(os.listdir('../data')) != 0:
+    if len(os.listdir(data_dir)) != 0:
         print("data dir not empty")
         return
 
