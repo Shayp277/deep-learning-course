@@ -68,7 +68,7 @@ def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=
         'add_noise': [0.001, 0.1],
         'shift_max': 0.2,  # seconds
         'volume_gain_dB': [-4, 4],
-        'reverb': True
+        'reverb': False #For reverb, pass rir files dir to dataset rir_dir.
     }
 
     mfcc_augmentation_params = {
