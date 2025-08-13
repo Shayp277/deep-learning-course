@@ -57,6 +57,7 @@ def main_train_loop(train_loader, val_loader,drone_fine_tune, mixup, num_epochs,
     #Fine-tuning for binary drone classification
     if drone_fine_tune:
         model = checkpoint['model'].to(device)
+        best_val_acc = 0
         for layer in model.model[:-1]:  # All except the last layer
             for param in layer.parameters():
                 param.requires_grad = False

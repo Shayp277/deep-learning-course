@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--test_augment', type=bool, default=False)
     parser.add_argument('--should_download_data', type=bool, default=False)
     parser.add_argument('--search_attempts', type=int, default=10)
-    parser.add_argument('--drone_fine_tune', type=bool, default=True)
+    parser.add_argument('--drone_fine_tune', type=bool, default=False)
     return parser.parse_args()
 
 
@@ -106,8 +106,8 @@ def grid_search(best_model_dir, data_dir, search_attempts,drone_fine_tune, mixup
     val_dataset.preprocess(seed)
 
     # Randomized grid search loop
-    for trial in range(1):
-        num_epochs = 100
+    for trial in range(search_attempts):
+        num_epochs = 150
         lr = 10 ** random.uniform(-5, -3)
         batch_size = 2 ** random.randint(5, 8)
         dropout = random.uniform(0, 0.2)
@@ -127,7 +127,7 @@ def grid_search(best_model_dir, data_dir, search_attempts,drone_fine_tune, mixup
     test_loader = DataLoader(testset, batch_size=1, shuffle=False)
 
     evaluate_model_on_test(test_loader, '../' + best_model_dir, device, k=2, criteria="exact_match",
-                           is_multilabel=is_multilabel)
+                           is_multilabel=is_multilabel,drone_fine_tuning=drone_fine_tune)
 
 
 if __name__ == '__main__':

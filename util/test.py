@@ -19,11 +19,12 @@ def parse_args():
     parser.add_argument('--augment', type=bool, default=False)
     parser.add_argument('--is_multilabel', type=bool, default=False)
     parser.add_argument('--stratify', type=bool, default=True)
+    parser.add_argument('--drone_fine_tuning', type=bool, default=False)
     return parser.parse_args()
 
 
 def evaluate_model_on_test(test_loader, model_path, device, k=1, criteria="exact_match", is_multilabel=False,
-                           mixup=None):
+                           mixup=None,drone_fine_tuning=False):
     """
     Evaluate the model on the given data loader.
 
@@ -55,7 +56,7 @@ def evaluate_model_on_test(test_loader, model_path, device, k=1, criteria="exact
             outputs = model(inputs)
 
             # calculate loss
-            loss = compute_loss(outputs, labels, mixup, is_multilabel)
+            loss = compute_loss(outputs, labels, mixup, is_multilabel or drone_fine_tuning)
             test_loss += loss.item()
 
             if is_multilabel:
