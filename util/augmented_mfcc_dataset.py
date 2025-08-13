@@ -17,7 +17,6 @@ class AugmentedMFCCDataset(Dataset):
                  label_map=None,
                  rir_dir=None,
                  sample_rate=16000,
-                 n_mfcc=80,
                  audio_augment=False,
                  audio_params=None,
                  mfcc_augment=False,
@@ -26,6 +25,7 @@ class AugmentedMFCCDataset(Dataset):
                  mixup=False,
                  classes_num=None,
                  is_multilabel=False,
+                 drone_fine_tune=False,
                  ):
         self.audio_paths = audio_paths
         self.labels = labels
@@ -39,6 +39,7 @@ class AugmentedMFCCDataset(Dataset):
         self.audio_augmentations = []
         self.augmenter = []
         self.training = training
+        self.drone_fine_tune = drone_fine_tune
         self.mixup = mixup
         self.mixup_labels_soft = []
         self.mixup_labels_hard = []
@@ -50,15 +51,85 @@ class AugmentedMFCCDataset(Dataset):
         self.final_labels = []
         self.transform = torchaudio.transforms.MFCC(sample_rate=self.sample_rate, n_mfcc=80,
                                                     melkwargs={'n_fft': 400, 'hop_length': 160, 'n_mels': 128,
-                                                               'center': True, 'power': 2.0}) # MFCC extractor
+                                                               'center': True, 'power': 2.0})  # MFCC extractor
 
         self.classes_num = classes_num
         self.is_multilabel = is_multilabel
-        self.labels_hot_one = ([torch_func.one_hot(torch.tensor(k).long(), num_classes=self.classes_num).float() for k in
-                                self.labels])
+        self.labels_hot_one = (
+        [torch_func.one_hot(torch.tensor(k).long(), num_classes=self.classes_num).float() for k in
+         self.labels])
 
-    def preprocess(self,seed):
+    def preprocess(self, seed):
         random.seed(seed)
+
+        cache_dir = "../audio_cache"  # Efficient audio data loading
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # =====Create clean (unaugmented) data=====
+        # ===Efficient audio loading===
+        waveforms = []
+        random.seed(0)
+        for j, path in enumerate(self.audio_paths):
+            cache_path = self.get_cache_path(path, cache_dir)
+
+            # Load or preprocess and save
+            if os.path.exists(cache_path):
+                waveform = torch.load(cache_path)
+            else:
+                waveform, sr = torchaudio.load(path)
+                waveform = torchaudio.functional.resample(waveform, sr, self.sample_rate)
+                if waveform.shape[0] > 1:
+                    waveform = torch.mean(waveform, dim=0, keepdim=True)
+                torch.save(waveform, cache_path)
+            waveforms.append(waveform)
+
+            self.clean_mfcc.append(torch.mean(self.transform(waveform.squeeze()), axis=1).unsqueeze(
+                0))  # ===Create clean (unaugmented) MFCC data===
+
+        # =====Create augmented data=====
+        if self.audio_augment:
+            self.create_augmented_data(waveforms)
+
+        if self.drone_fine_tune:
+            self.final_input, self.final_labels = self.mixup_for_finetuning(seed)
+        else:
+            # =====Create Mixup data (multi-labeled)=====
+            mix_waveforms = waveforms
+            if self.mixup and self.training:
+                p = 5 if self.training else 1
+                while p > 0:
+                    self.mixup_mfcc, self.mixup_labels_soft, self.mixup_labels_hard = self.create_mix(mix_waveforms)
+                    p = p - 1
+            if self.is_multilabel and not self.training:
+                self.mixup_mfcc, self.mixup_labels_soft, self.mixup_labels_hard = self.create_mix(mix_waveforms)
+
+            # Assign final data to dataset
+            if self.training:
+                self.final_input = self.clean_mfcc.copy()
+                self.final_labels = self.labels_hot_one.copy()
+                if self.is_multilabel and self.mixup:
+                    self.final_input.extend(self.mixup_mfcc.copy())
+                    self.final_labels.extend(self.mixup_labels_soft.copy())
+                else:
+                    if self.augwav_mfcc:
+                        self.final_input.extend(self.augwav_mfcc.copy())
+                        self.final_labels.extend(self.labels_hot_one.copy())
+                    if self.mixup:
+                        self.final_input.extend(self.mixup_mfcc.copy())
+                        self.final_labels.extend(self.mixup_labels_soft.copy())
+            else:
+                if self.is_multilabel:
+                    self.final_input.extend(self.mixup_mfcc.copy())
+                    self.final_labels.extend(self.mixup_labels_hard.copy())
+                else:
+                    if not self.audio_augment:
+                        self.final_input = self.clean_mfcc.copy()
+                        self.final_labels = self.labels_hot_one.copy()
+                    else:
+                        self.final_input.extend(self.augwav_mfcc.copy())
+                        self.final_labels.extend(self.labels_hot_one.copy())
+
+    def create_augmented_data(self, waveforms):
         # =====Define waveform-level augmentations=====
         # ===Time shift===
         if 'shift_max' in self.audio_params:
@@ -104,93 +175,21 @@ class AugmentedMFCCDataset(Dataset):
 
         self.augmenter = Compose(self.audio_augmentations, output_type="tensor")
 
+        for j in range(len(waveforms)):
 
-        cache_dir = "../audio_cache"  # Efficient audio data loading
-        os.makedirs(cache_dir, exist_ok=True)
+            aug_waveform = waveforms[j].unsqueeze(0)  # Batchify for augmenter: [B, C, T]
 
+            # Apply audio augmentations
+            aug_waveform = self.augmenter(aug_waveform, sample_rate=self.sample_rate)
+            if 'add_noise' in self.audio_params:
+                min_noise_std, max_noise_std = self.audio_params['add_noise']
+                noise_std = random.uniform(min_noise_std, max_noise_std)
+                aug_waveform += torch.randn_like(aug_waveform) * noise_std
+            aug_waveform = aug_waveform.squeeze(0)  # [1, T]
 
-        # =====Create clean (unaugmented) data=====
-        # ===Efficient audio loading===
-        waveforms = []
-        random.seed(0)
-        for j, path in enumerate(self.audio_paths):
-            cache_path = self.get_cache_path(path, cache_dir)
-
-            # Load or preprocess and save
-            if os.path.exists(cache_path):
-                waveform = torch.load(cache_path)
-            else:
-                waveform, sr = torchaudio.load(path)
-                waveform = torchaudio.functional.resample(waveform, sr, self.sample_rate)
-                if waveform.shape[0] > 1:
-                    waveform = torch.mean(waveform, dim=0, keepdim=True)
-                torch.save(waveform, cache_path)
-            waveforms.append(waveform)
-
-            self.clean_mfcc.append(torch.mean(self.transform(waveform.squeeze()), axis=1).unsqueeze(
-                0))  # ===Create clean (unaugmented) MFCC data===
-
-        # =====Create augmented data=====
-        if self.audio_augment:
-            for j in range(len(waveforms)):
-
-                aug_waveform = waveforms[j].unsqueeze(0)  # Batchify for augmenter: [B, C, T]
-
-                # Apply audio augmentations
-                aug_waveform = self.augmenter(aug_waveform, sample_rate=self.sample_rate)
-                if 'add_noise' in self.audio_params:
-                    min_noise_std, max_noise_std = self.audio_params['add_noise']
-                    noise_std = random.uniform(min_noise_std, max_noise_std)
-                    aug_waveform += torch.randn_like(aug_waveform) * noise_std
-                aug_waveform = aug_waveform.squeeze(0)  # [1, T]
-
-                # Keep augmented data
-                self.aug_waveoforms.append(aug_waveform)
-                self.augwav_mfcc.append(torch.mean(self.transform(aug_waveform.squeeze()), axis=1).unsqueeze(0))
-
-        # =====Create Mixup data (multi-labeled)=====
-        # self.mixup_labels = []
-
-        mix_waveforms = waveforms
-        if self.mixup and self.training:
-
-            p = 5 if self.training else 1
-            while p > 0:
-                mfcc_mix, softlabel, hardlabel = self.create_mix(mix_waveforms)
-                self.mixup_mfcc = mfcc_mix
-                self.mixup_labels_soft = softlabel
-                self.mixup_labels_hard = hardlabel
-                p = p - 1
-        if self.is_multilabel and not self.training:
-            mfcc_mix, softlabel, hardlabel = self.create_mix(mix_waveforms)
-            self.mixup_mfcc = mfcc_mix
-            self.mixup_labels_soft = softlabel
-            self.mixup_labels_hard = hardlabel
-
-        if self.training:
-            self.final_input = self.clean_mfcc.copy()
-            self.final_labels = self.labels_hot_one.copy()
-            if self.is_multilabel and self.mixup:
-                self.final_input.extend(self.mixup_mfcc.copy())
-                self.final_labels.extend(self.mixup_labels_soft.copy())
-            else:
-                if self.augwav_mfcc:
-                    self.final_input.extend(self.augwav_mfcc.copy())
-                    self.final_labels.extend(self.labels_hot_one.copy())
-                if self.mixup:
-                    self.final_input.extend(self.mixup_mfcc.copy())
-                    self.final_labels.extend(self.mixup_labels_soft.copy())
-        else:
-            if self.is_multilabel:
-                self.final_input.extend(self.mixup_mfcc.copy())
-                self.final_labels.extend(self.mixup_labels_hard.copy())
-            else:
-                if not self.audio_augment:
-                    self.final_input = self.clean_mfcc.copy()
-                    self.final_labels = self.labels_hot_one.copy()
-                else:
-                    self.final_input.extend(self.augwav_mfcc.copy())
-                    self.final_labels.extend(self.labels_hot_one.copy())
+            # Keep augmented data
+            self.aug_waveoforms.append(aug_waveform)
+            self.augwav_mfcc.append(torch.mean(self.transform(aug_waveform.squeeze()), axis=1).unsqueeze(0))
 
     def create_mix(self, mix_waveforms):
         mfcc_mix = []
@@ -211,6 +210,66 @@ class AugmentedMFCCDataset(Dataset):
             softlabel.append((m * self.labels_hot_one[j] + (1 - m) * self.labels_hot_one[i]))
             hardlabel.append((self.labels_hot_one[j] + self.labels_hot_one[i]))
         return mfcc_mix, softlabel, hardlabel
+
+    @staticmethod
+    def rms_normalize(waveform, target_db=-20):
+        # convert target db to rms amplitude
+        target_rms = 10 ** (target_db / 20)
+        rms = waveform.pow(2).mean().sqrt()
+        if rms > 0:
+            waveform = waveform * (target_rms / rms)
+        return waveform
+
+    def mixup_for_finetuning(self, seed):
+
+        # extract features from dataset with mixup
+
+        random.seed(seed)
+        mfcc_with_drone_mixup = []
+        labels = []
+        drone_file = []
+        non_drone_file = []
+        for path in self.audio_paths:
+            if 'Drone' in path:
+                drone_file.append(path)
+            else:
+                non_drone_file.append(path)
+
+        for path in self.audio_paths:
+            if 'Drone' in path:
+                label = 1
+            else:
+                label = 0
+            audio_origin, sample_rate = torchaudio.load(path)
+            idx_non_drone = random.randint(0, len(non_drone_file) - 1)
+            idx_drone = random.randint(0, len(drone_file) - 1)  # randomly select another audio file
+            audio_mix, _ = torchaudio.load(non_drone_file[idx_non_drone])
+            mix_up_norm = 0.5
+            # mix_up_norm1 = random.uniform(0, 1)
+            # mix_up_norm2 = random.uniform(0, 1-mix_up_norm1)
+            # mix_up_norm3 = 1 - mix_up_norm1 - mix_up_norm2
+
+            if random.random() > 0.5:
+                label = 1
+                audio_mix_drone, _ = torchaudio.load(drone_file[idx_drone])
+                min_audio_size = min(audio_mix.shape[1], audio_origin.shape[1], audio_mix_drone.shape[1])  # crop audio
+                audio = (self.rms_normalize(audio_origin[:, :min_audio_size])
+                         + mix_up_norm * self.rms_normalize(audio_mix_drone[:, :min_audio_size]))
+            else:
+                min_audio_size = min(audio_mix.shape[1], audio_origin.shape[1], audio_mix.shape[1])
+                audio = (self.rms_normalize(audio_origin[:, :min_audio_size])
+                         + mix_up_norm * self.rms_normalize(audio_mix[:, :min_audio_size]))
+
+            resample = torchaudio.transforms.Resample(sample_rate, sample_rate / 2)
+            if audio.shape[0] > 1:
+                audio = audio.mean(dim=0, keepdims=True)
+
+            # extract features
+            mfcc_with_drone_mixup.append(torch.mean(self.transform(resample(audio.squeeze())), axis=1).unsqueeze(dim=0))
+            labels.append(label)
+        labels_tensor = torch.tensor(labels)
+        labels_hot_one = torch_func.one_hot(labels_tensor, num_classes=2).float()
+        return mfcc_with_drone_mixup, labels_hot_one
 
     @staticmethod
     def _collect_rir_paths(rir_dir):

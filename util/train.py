@@ -19,8 +19,8 @@ def soft_cross_entropy(logits: torch.Tensor, target_probs: torch.Tensor, reducti
     return loss  # shape (N,)
 
 
-def compute_loss(output, labels, mixup, is_multilabel):
-    if is_multilabel:
+def compute_loss(output, labels, mixup, multilabel_or_drone_fine_tuning):
+    if multilabel_or_drone_fine_tuning:
         criterion = nn.BCEWithLogitsLoss()
         loss = criterion(output, labels)
     else:
@@ -36,7 +36,7 @@ def compute_loss(output, labels, mixup, is_multilabel):
     return loss
 
 
-def main_train_loop(train_loader, val_loader, mixup, num_epochs, lr, batch_size, dropout, device, best_model_dir,
+def main_train_loop(train_loader, val_loader,drone_fine_tune, mixup, num_epochs, lr, batch_size, dropout, device, best_model_dir,
                     classes_num, is_multilabel):
     writer = SummaryWriter(
         log_dir=f'../run_log/epochs={num_epochs}_lr={lr:1.5f}_batch_size={batch_size}_dropout={dropout:1.2f}')
@@ -53,6 +53,15 @@ def main_train_loop(train_loader, val_loader, mixup, num_epochs, lr, batch_size,
 
     # Build model
     model = CNN_classifier(1, classes_num, dropout).to(device)
+
+    #Fine-tuning for binary drone classification
+    if drone_fine_tune:
+        model = checkpoint['model'].to(device)
+        for layer in model.model[:-1]:  # All except the last layer
+            for param in layer.parameters():
+                param.requires_grad = False
+        model.model[-1] = nn.Linear(model.model[-1].in_features, 2)
+        model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     # Define evaluation metric as Top2
     metric = TopKMultilabelAccuracy(k=2, criteria="exact_match").to(device) if is_multilabel else None
@@ -67,7 +76,8 @@ def main_train_loop(train_loader, val_loader, mixup, num_epochs, lr, batch_size,
             labels = labels.to(device)
             optimizer.zero_grad()
             output = model(inputs)
-            loss = compute_loss(output, labels, mixup, is_multilabel)
+
+            loss = compute_loss(output, labels, mixup, is_multilabel or drone_fine_tune)
             loss.backward()
             optimizer.step()
             running_loss += loss.item()

@@ -4,7 +4,6 @@
 **Authors:**  
 - Dan Epshtein (dan.epshtein@campus.technion.ac.il)  
 - Shay Poran (shay.poran@campus.technion.ac.il)
-> *Note:* This README was generated to help new contributors get started quickly. Update the TODO sections to match the exact scripts/notebooks and datasets you use in this repo.
 
 ---
 
@@ -37,6 +36,11 @@ The Base neural network, inspired by Jonboubi Abderrahim’s architecture, is a 
 2.	MFCC-level augmentations (applied every epoch during training): Gaussian noise and dropout.
 
 ![img_1.png](img_1.png)
+
+---
+# Fine-Tuning Option
+
+As drone presence identification can be a complex problem even when using visual sensing, and due to it's high importance is various applications, we decided to add the option to use a trained model as a base for fine tuning a binary classifier model. The fine tuning changes only the last layer's weights which is replaced with a linear layer with two outputs. See the way of use below. 
 
 ---
 
@@ -89,12 +93,13 @@ you can do so easily by calling the grid_search.py with the following parameters
     --test_augment, type=bool, default=False\
     --should_download_data, type=bool, default=False\
     --search_attempts, type=int, default=10\
+    --drone_fine_tune, type=bool, default=False\
 
 ---
 ## Example training run
 python grid_search.py   --model_dir ../my_best_model --data_dir ../my_data --seed 0 --mixup true --augment false --is_multilabel true --stratify true --test_augment true --search_attempts 5
 
-This will train a model 5 times and save the best one according to the validation score.
+This will train a 5 models and save the best one according to the validation score.
 it will do so using the data in data_dir, while mixing up pairs of audio files and train for a mulit-label case. it will not use audio augmentation but it will test the model on augment (noisy) test set
 
 you could also test a model without training by using test.py directly.

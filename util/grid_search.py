@@ -28,13 +28,12 @@ def parse_args():
     parser.add_argument('--test_augment', type=bool, default=False)
     parser.add_argument('--should_download_data', type=bool, default=False)
     parser.add_argument('--search_attempts', type=int, default=10)
+    parser.add_argument('--drone_fine_tune', type=bool, default=True)
     return parser.parse_args()
 
 
-def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=False, is_multilabel=False,
-                test_augment=False,
-                should_download_data=False,
-                stratify=True, seed=0):
+def grid_search(best_model_dir, data_dir, search_attempts,drone_fine_tune, mixup, augment, is_multilabel,test_augment,
+                should_download_data,stratify, seed=0):
     # Set fixed seed
     random.seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -48,6 +47,14 @@ def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=
             data_dir)  # Download original .wav files to data dir from "janboubiabderrahim/vehicle-sounds-dataset".
 
     classes_num = len(os.listdir(data_dir))
+
+    if drone_fine_tune:
+        is_multilabel = False
+        mixup = False
+        if is_multilabel:
+            print("Drone Fine-Tuning conflicts with multilabel- is it a binary classifier")
+
+
 
     # Get files paths and labels, split data
     audio_paths, labels, label_map = load_audio_paths_and_labels(data_dir)
@@ -79,7 +86,7 @@ def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=
     train_dataset = AugmentedMFCCDataset(training_paths, train_labels, label_map, mixup=mixup, audio_augment=augment,
                                          audio_params=train_audio_augmentation_params, mfcc_augment=augment,
                                          mfcc_params=mfcc_augmentation_params, training=True, classes_num=classes_num,
-                                         is_multilabel=is_multilabel)
+                                         is_multilabel=is_multilabel,drone_fine_tune=drone_fine_tune)
     train_dataset.preprocess(seed)
 
     # Validation dataset
@@ -95,18 +102,18 @@ def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=
     val_labels = [labels[i] for i in val_idx]
     val_dataset = AugmentedMFCCDataset(validating_paths, val_labels, label_map, training=False, mixup=mixup,
                                        classes_num=classes_num, is_multilabel=is_multilabel, audio_augment=test_augment,
-                                       audio_params=test_audio_augmentation_params)
+                                       audio_params=test_audio_augmentation_params,drone_fine_tune=drone_fine_tune)
     val_dataset.preprocess(seed)
 
     # Randomized grid search loop
-    for trial in range(search_attempts):
-        num_epochs = 150
+    for trial in range(1):
+        num_epochs = 100
         lr = 10 ** random.uniform(-5, -3)
         batch_size = 2 ** random.randint(5, 8)
         dropout = random.uniform(0, 0.2)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-        main_train_loop(train_loader, val_loader, mixup, num_epochs, lr, batch_size, dropout, device,
+        main_train_loop(train_loader, val_loader,drone_fine_tune, mixup, num_epochs, lr, batch_size, dropout, device,
                         best_model_dir, classes_num, is_multilabel=is_multilabel)
         print("trial number", trial)
 
@@ -115,7 +122,7 @@ def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=
     test_labels = [labels[i] for i in test_idx]
     testset = AugmentedMFCCDataset(testing_paths, test_labels, label_map, training=False, classes_num=classes_num,
                                    is_multilabel=is_multilabel, audio_augment=test_augment,
-                                   audio_params=test_audio_augmentation_params)
+                                   audio_params=test_audio_augmentation_params,drone_fine_tune=drone_fine_tune)
     testset.preprocess(seed)
     test_loader = DataLoader(testset, batch_size=1, shuffle=False)
 
@@ -125,8 +132,11 @@ def grid_search(best_model_dir, data_dir, search_attempts, mixup=False, augment=
 
 if __name__ == '__main__':
     args = parse_args()
-    Path(args.best_model_dir).mkdir(parents=True, exist_ok=True)
+    script_dir = Path(__file__).parent
+    parent_of_code_folder = script_dir.parent
+    best_model_dir = parent_of_code_folder / args.best_model_dir
+    Path(best_model_dir).mkdir(parents=True, exist_ok=True)
     grid_search(best_model_dir=args.best_model_dir, data_dir=args.data_dir, mixup=args.mixup, augment=args.augment,
                 is_multilabel=args.is_multilabel,
                 test_augment=args.test_augment, should_download_data=args.should_download_data, stratify=args.stratify,
-                seed=args.seed, search_attempts=args.search_attempts)
+                seed=args.seed, search_attempts=args.search_attempts,drone_fine_tune=args.drone_fine_tune)
