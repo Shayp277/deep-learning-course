@@ -56,7 +56,7 @@ def main_train_loop(train_loader, val_loader,drone_fine_tune, mixup, num_epochs,
 
     #Fine-tuning for binary drone classification
     if drone_fine_tune:
-        model = checkpoint['model'].to(device)
+        # model = checkpoint['model'].to(device)
         best_val_acc = 0
         for layer in model.model[:-1]:  # All except the last layer
             for param in layer.parameters():
@@ -120,6 +120,9 @@ def main_train_loop(train_loader, val_loader,drone_fine_tune, mixup, num_epochs,
         val_accuracy = 100 * metric.compute().item() if is_multilabel else 100 * correct / total
         val_accuracies.append(val_accuracy)
 
+        save_best_as = 'model_full.pth'
+        if drone_fine_tune:
+            save_best_as = 'model_fine_tune.pth'
         # Save best model
         if val_accuracy > best_val_acc:
             best_val_acc = val_accuracy
@@ -132,7 +135,7 @@ def main_train_loop(train_loader, val_loader,drone_fine_tune, mixup, num_epochs,
                      'batch_size': batch_size,
                      'num_epochs': num_epochs
                  }
-                 }, '../' + best_model_dir + '/model_full.pth')
+                 }, '../' + best_model_dir + '/' + save_best_as)
 
         print('-' * 89)
         print(f'| end of epoch {epoch:3d} | valid loss {val_loss:.3f} | valid accuracy {val_accuracy:.3f}')

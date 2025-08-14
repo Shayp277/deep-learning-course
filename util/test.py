@@ -41,6 +41,8 @@ def evaluate_model_on_test(test_loader, model_path, device, k=1, criteria="exact
     """
     # Load model
     checkpoint = torch.load(os.path.join(model_path, 'model_full.pth'), map_location=device)
+    if drone_fine_tuning:
+        checkpoint = torch.load(os.path.join(model_path, 'model_fine_tune.pth'), map_location=device)
     model = checkpoint['model']
     metric = TopKMultilabelAccuracy(k=k, criteria=criteria).to(device) if is_multilabel else None
     model.eval()

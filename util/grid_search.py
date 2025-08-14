@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--test_augment', type=bool, default=False)
     parser.add_argument('--should_download_data', type=bool, default=False)
     parser.add_argument('--search_attempts', type=int, default=10)
-    parser.add_argument('--drone_fine_tune', type=bool, default=False)
+    parser.add_argument('--drone_fine_tune', type=bool, default=True)
     return parser.parse_args()
 
 
